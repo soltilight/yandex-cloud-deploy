@@ -6,7 +6,7 @@ on:
       - main
 
 env:
-  REGISTRY_ID: crp8bebq95mghbjc8o4b  # ЗАМЕНИТЕ на ваш ID реестра!
+  REGISTRY_ID: crp8bebq95mghbjc8o4b
   VM_USER: alice
   VM_HOST: 158.160.216.251
   CONTAINER_NAME: test-app
@@ -20,12 +20,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Login to Yandex Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: cr.yandex
-          username: iam
-          password: ${{ secrets.YC_AUTHORIZED_KEY }}
+      - name: Create IAM token and login to Container Registry
+        run: |
+          # Создать IAM токен из сервисного аккаунта
+          echo '${{ secrets.YC_AUTHORIZED_KEY }}' > key.json
+          
+          # Получить IAM токен
+          IAM_TOKEN=$(curl -s -X POST https://iam.api.cloud.yandex.net/iam/v1/tokens \
+            -H "Content-Type: application/json" \
+            -d '{"jwt": "'$(jq -Rs . key.json | tr -d '"')'"}' | jq -r '.iamToken')
+          
+          # Залогиниться в Container Registry
+          echo $IAM_TOKEN | docker login --username iam --password-stdin cr.yandex
 
       - name: Build and Push Docker Image
         run: |
@@ -47,23 +53,25 @@ jobs:
           username: ${{ env.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            echo "🚀 Начинаю деплой..."
+            set -e
             
-            # Авторизация в Container Registry на ВМ
-            echo "${{ secrets.YC_AUTHORIZED_KEY }}" > /tmp/yc-key.json
-            cat /tmp/yc-key.json | docker login --username iam --password-stdin cr.yandex
+            # Создать IAM токен на ВМ
+            echo '${{ secrets.YC_AUTHORIZED_KEY }}' > /tmp/key.json
+            IAM_TOKEN=$(curl -s -X POST https://iam.api.cloud.yandex.net/iam/v1/tokens \
+              -H "Content-Type: application/json" \
+              -d '{"jwt": "'$(cat /tmp/key.json)'"}' | jq -r '.iamToken')
             
-            # Скачивание нового образа
-            echo "📥 Скачиваю образ..."
+            # Залогиниться в Container Registry
+            echo $IAM_TOKEN | docker login --username iam --password-stdin cr.yandex
+            
+            # Скачать новый образ
             docker pull cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
             
-            # Остановка и удаление старого контейнера
-            echo "🛑 Останавливаю старый контейнер..."
+            # Остановить и удалить старый контейнер
             docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             
-            # Запуск нового контейнера
-            echo "🚀 Запускаю новый контейнер..."
+            # Запустить новый контейнер
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               -p 80:80 \
@@ -71,7 +79,7 @@ jobs:
               cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
             
             # Очистка
-            rm /tmp/yc-key.json
+            rm /tmp/key.json
             
             echo "✅ Деплой завершён!"
             docker ps | grep ${{ env.CONTAINER_NAME }}
