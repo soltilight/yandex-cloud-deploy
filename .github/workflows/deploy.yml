@@ -20,18 +20,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create IAM token and login to Container Registry
+      - name: Login to Container Registry
         run: |
-          # Создать IAM токен из сервисного аккаунта
-          echo '${{ secrets.YC_AUTHORIZED_KEY }}' > key.json
-          
-          # Получить IAM токен
-          IAM_TOKEN=$(curl -s -X POST https://iam.api.cloud.yandex.net/iam/v1/tokens \
-            -H "Content-Type: application/json" \
-            -d '{"jwt": "'$(jq -Rs . key.json | tr -d '"')'"}' | jq -r '.iamToken')
-          
-          # Залогиниться в Container Registry
-          echo $IAM_TOKEN | docker login --username iam --password-stdin cr.yandex
+          echo '${{ secrets.YC_AUTHORIZED_KEY }}' | docker login \
+            --username json_key \
+            --password-stdin \
+            cr.yandex
 
       - name: Build and Push Docker Image
         run: |
@@ -46,40 +40,17 @@ jobs:
     name: Deploy to VM
     
     steps:
-      - name: Deploy to Yandex Cloud VM
+      - name: Deploy to VM
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ env.VM_HOST }}
           username: ${{ env.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            set -e
-            
-            # Создать IAM токен на ВМ
-            echo '${{ secrets.YC_AUTHORIZED_KEY }}' > /tmp/key.json
-            IAM_TOKEN=$(curl -s -X POST https://iam.api.cloud.yandex.net/iam/v1/tokens \
-              -H "Content-Type: application/json" \
-              -d '{"jwt": "'$(cat /tmp/key.json)'"}' | jq -r '.iamToken')
-            
-            # Залогиниться в Container Registry
-            echo $IAM_TOKEN | docker login --username iam --password-stdin cr.yandex
-            
-            # Скачать новый образ
+            echo '${{ secrets.YC_AUTHORIZED_KEY }}' | docker login --username json_key --password-stdin cr.yandex
             docker pull cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
-            
-            # Остановить и удалить старый контейнер
             docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
-            
-            # Запустить новый контейнер
-            docker run -d \
-              --name ${{ env.CONTAINER_NAME }} \
-              -p 80:80 \
-              --restart unless-stopped \
-              cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
-            
-            # Очистка
-            rm /tmp/key.json
-            
+            docker run -d --name ${{ env.CONTAINER_NAME }} -p 80:80 --restart unless-stopped cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
             echo "✅ Деплой завершён!"
             docker ps | grep ${{ env.CONTAINER_NAME }}
