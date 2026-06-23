@@ -22,7 +22,8 @@ jobs:
 
       - name: Login to Container Registry
         run: |
-          echo '${{ secrets.YC_AUTHORIZED_KEY }}' | docker login \
+          echo '${{ secrets.YC_AUTHORIZED_KEY }}' > key.json
+          cat key.json | docker login \
             --username json_key \
             --password-stdin \
             cr.yandex
@@ -47,10 +48,12 @@ jobs:
           username: ${{ env.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            echo '${{ secrets.YC_AUTHORIZED_KEY }}' | docker login --username json_key --password-stdin cr.yandex
+            echo '${{ secrets.YC_AUTHORIZED_KEY }}' > /tmp/key.json
+            cat /tmp/key.json | docker login --username json_key --password-stdin cr.yandex
             docker pull cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
             docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker run -d --name ${{ env.CONTAINER_NAME }} -p 80:80 --restart unless-stopped cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
+            rm /tmp/key.json
             echo "✅ Деплой завершён!"
             docker ps | grep ${{ env.CONTAINER_NAME }}
