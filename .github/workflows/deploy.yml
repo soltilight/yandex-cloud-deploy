@@ -55,5 +55,4 @@ jobs:
             docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
             docker run -d --name ${{ env.CONTAINER_NAME }} -p 80:80 --restart unless-stopped cr.yandex/${{ env.REGISTRY_ID }}/test-nginx:latest
             rm /tmp/key.json
-            echo "✅ Деплой завершён!"
             docker ps | grep ${{ env.CONTAINER_NAME }}
